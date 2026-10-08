@@ -1,5 +1,6 @@
 {
   "name": "react-vite-tailwind",
+  "homepage": "https://tuandv8.github.io/aistudio",
   "private": true,
   "version": "0.0.0",
   "type": "module",
