@@ -29,6 +29,8 @@ export interface HistoryEntry {
 }
 export interface Project {
   pid: string;
+  /** Project ID hiển thị — DUY NHẤT trên toàn hệ thống (mọi workspace), không đổi, không trùng kể cả khi trùng tên */
+  pcode: string;
   name: string;
   status: ProjectStatus;
   createdAt: number;
@@ -36,6 +38,8 @@ export interface Project {
   history: HistoryEntry[];
   data: PipelineStep[];
   lines: Record<string, Line[]>;
+  /** qid → trạng thái queue đã áp dụng vào local (chống lặp khi sync) */
+  syncedQ?: Record<string, string>;
 }
 interface Persisted {
   schema: number;
@@ -58,6 +62,8 @@ interface Ctx {
   deleteProject: (pid: string) => void;
   setProjectStatus: (pid: string, status: ProjectStatus, action: string) => void;
   logActive: (action: string) => void;
+  /** đánh dấu đã đồng bộ kết quả review queue (không ghi history, không bump updatedAt) */
+  markQSynced: (pid: string, qid: string, status: string) => void;
   /** IMPORT: thay thế toàn bộ categories của 1 step (built-in thay đổi theo file import) */
   replaceStepData: (code: string, cats: Category[]) => void;
   /** IMPORT: thay thế toàn bộ data 8 steps */
@@ -79,17 +85,40 @@ interface Ctx {
   setRef: (code: string, uid: string, refKey: string, uids: string[]) => void;
 }
 
-const KEY = 'aivp-store-v3';
 const KEY_V2 = 'aivp-store-v2';
+const KEY_V3 = 'aivp-store-v3'; // legacy global (pre per-account)
+const MIGRATED = 'aivp-store-v3-migrated'; // account nào đã nhận dữ liệu cũ
 const uid = () => Math.random().toString(36).slice(2, 10);
+
+/** storage key RIÊNG cho từng account */
+const keyOf = (scope: string) => `aivp-store-v3@${scope}`;
 
 function clone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v)) as T;
 }
+
+/* Project ID global — counter dùng chung mọi workspace nên ID không bao giờ trùng */
+const SEQ_KEY = 'aivp-project-seq';
+function nextProjectCode(): string {
+  let n = 1;
+  try {
+    n = (parseInt(localStorage.getItem(SEQ_KEY) ?? '0', 10) || 0) + 1;
+  } catch {
+    n = 1;
+  }
+  try {
+    localStorage.setItem(SEQ_KEY, String(n));
+  } catch {
+    /* ignore */
+  }
+  return `PRJ-${String(n).padStart(4, '0')}`;
+}
+
 function mkProject(name: string): Project {
   const now = Date.now();
   return {
     pid: uid(),
+    pcode: nextProjectCode(),
     name,
     status: 'draft',
     createdAt: now,
@@ -103,23 +132,45 @@ function seed(): Persisted {
   const p = mkProject('Project 01');
   return { schema: 3, projects: [p], activePid: p.pid };
 }
-function load(): Persisted {
+
+/** Load workspace của riêng account `scope`.
+ *  Dữ liệu global cũ (v3 không scope / v2) chỉ được migrate cho account đăng nhập ĐẦU TIÊN một lần. */
+function load(scope: string): Persisted {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(keyOf(scope));
     if (raw) {
       const p = JSON.parse(raw) as Persisted;
-      if (p?.schema === 3 && p.projects?.length) return p;
+      if (p?.schema === 3 && p.projects?.length) {
+        // backfill Project ID cho dữ liệu cũ (chưa có pcode)
+        p.projects.forEach((pr) => {
+          if (!pr.pcode) pr.pcode = nextProjectCode();
+        });
+        return p;
+      }
     }
-    // migrate từ v2 (1 workspace → project)
-    const legacy = localStorage.getItem(KEY_V2);
-    if (legacy) {
-      const v2 = JSON.parse(legacy) as { data: PipelineStep[]; lines: Record<string, Line[]> };
-      if (v2?.data && v2?.lines) {
-        const p = mkProject('Project 01');
-        p.data = v2.data;
-        p.lines = v2.lines;
-        p.history.push({ at: Date.now(), action: 'Migrate từ workspace cũ v2' });
-        return { schema: 3, projects: [p], activePid: p.pid };
+    const notMigrated = !localStorage.getItem(MIGRATED);
+    if (notMigrated) {
+      // thử v3 global
+      const legacy = localStorage.getItem(KEY_V3);
+      if (legacy) {
+        const p = JSON.parse(legacy) as Persisted;
+        if (p?.schema === 3 && p.projects?.length) {
+          localStorage.setItem(MIGRATED, scope);
+          return p;
+        }
+      }
+      // thử v2 (1 workspace → project)
+      const legacy2 = localStorage.getItem(KEY_V2);
+      if (legacy2) {
+        const v2 = JSON.parse(legacy2) as { data: PipelineStep[]; lines: Record<string, Line[]> };
+        if (v2?.data && v2?.lines) {
+          const proj = mkProject('Project 01');
+          proj.data = v2.data;
+          proj.lines = v2.lines;
+          proj.history.push({ at: Date.now(), action: 'Migrate từ workspace cũ v2' });
+          localStorage.setItem(MIGRATED, scope);
+          return { schema: 3, projects: [proj], activePid: proj.pid };
+        }
       }
     }
   } catch {
@@ -135,16 +186,17 @@ export const useStore = () => {
   return c;
 };
 
-export function StoreProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<Persisted>(load);
+export function StoreProvider({ scope, children }: { scope: string; children: ReactNode }) {
+  // mỗi account một workspace riêng — key theo scope (username)
+  const [state, setState] = useState<Persisted>(() => load(scope));
 
   useEffect(() => {
     try {
-      localStorage.setItem(KEY, JSON.stringify(state));
+      localStorage.setItem(keyOf(scope), JSON.stringify(state));
     } catch {
       /* quota */
     }
-  }, [state]);
+  }, [state, scope]);
 
   const api = useMemo<Ctx>(() => {
     const active = state.projects.find((p) => p.pid === state.activePid) ?? state.projects[0];
@@ -216,6 +268,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const copy: Project = {
             ...clone(src),
             pid: uid(),
+            pcode: nextProjectCode(), // bản sao nhận Project ID mới — bản gốc giữ ID cũ
             name: `${src.name} (copy)`,
             status: 'draft',
             createdAt: now,
@@ -241,6 +294,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           ),
         })),
       logActive: (action) => touch((p) => ({ history: [...p.history, { at: Date.now(), action }] })),
+      markQSynced: (pid, qid, status) =>
+        setState((s) => ({
+          ...s,
+          projects: s.projects.map((p) =>
+            p.pid === pid ? { ...p, syncedQ: { ...(p.syncedQ ?? {}), [qid]: status } } : p,
+          ),
+        })),
 
       /* ---------- import (thay thế built-in) ---------- */
       replaceStepData: (code, cats) => {

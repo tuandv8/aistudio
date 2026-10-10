@@ -136,7 +136,20 @@ function RefCell({ rd, current, pool, onChange, readOnly }: { rd: RefDef; curren
 }
 
 /* ---------------- main line card ---------------- */
-export default function LineCard({ step, line, onGen, readOnly }: { step: PipelineStep; line: Line; onGen: () => void; readOnly?: boolean }) {
+export default function LineCard({
+  step,
+  line,
+  onGen,
+  readOnly,
+  allLines,
+}: {
+  step: PipelineStep;
+  line: Line;
+  onGen: () => void;
+  readOnly?: boolean;
+  /** pool lines cho ref-picker — ở preview mode là lines của SNAPSHOT, không phải workspace */
+  allLines?: Record<string, Line[]>;
+}) {
   const t = stepTheme[step.code];
   const store = useStore();
   const [diceKey, setDiceKey] = useState(0);
@@ -230,7 +243,7 @@ export default function LineCard({ step, line, onGen, readOnly }: { step: Pipeli
             key={rd.key}
             rd={rd}
             current={line.refs[rd.key] ?? []}
-            pool={store.lines[rd.from] ?? []}
+            pool={(allLines ?? store.lines)[rd.from] ?? []}
             onChange={(uids) => store.setRef(step.code, line.uid, rd.key, uids)}
             readOnly={disabled}
           />

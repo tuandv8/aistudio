@@ -1,11 +1,15 @@
 import { useMemo, useState } from 'react';
-import { BookMarked, Bot, Check, Copy, Eye, FolderKanban, ListChecks, Lock, Plus, Rocket, Search, Wand2, X } from 'lucide-react';
+import { BookMarked, Bot, Check, Copy, Eye, FolderKanban, ListChecks, Lock, Plus, Rocket, Search, Users, Wand2, X } from 'lucide-react';
 import type { PipelineStep } from '../data/pipeline';
 import { statusMeta, useStore, type Line } from '../store';
+import { queueStatusMeta, useQueue } from '../reviewQueue';
 import { roleMeta, useAuth } from '../auth';
 import { stepTheme } from '../theme';
 import LineCard from '../production/LineCard';
 import { agents, buildFullProject, genPromptFor, type AgentOpt } from '../production/genPrompt';
+
+const fmtTime = (at: number) =>
+  new Date(at).toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
 
 export default function DevelopApp({
   goProduction,
@@ -15,9 +19,17 @@ export default function DevelopApp({
   goBlueprintAt?: (stepCode?: string) => void;
 }) {
   const store = useStore();
+  const queue = useQueue();
   const { user, perms } = useAuth();
-  const readOnly = store.isLocked || !perms.editDevelop || !user;
-  const canLog = perms.editDevelop || perms.reviewApprove;
+
+  // PREVIEW MODE: Admin/L3 mở snapshot từ review queue — chỉ xem, không sửa
+  const previewEntry = queue.previewQid ? queue.entries.find((e) => e.qid === queue.previewQid) ?? null : null;
+  const preview = !!previewEntry;
+  const data = preview && previewEntry ? previewEntry.snapshot.data : store.data;
+  const linesAll = preview && previewEntry ? previewEntry.snapshot.lines : store.lines;
+
+  const readOnly = preview || store.isLocked || !perms.editDevelop || !user;
+  const canLog = !preview && (perms.editDevelop || perms.approve || perms.submitReview);
   const [tab, setTab] = useState('ST');
   const [gen, setGen] = useState<{ title: string; text: string } | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -28,10 +40,10 @@ export default function DevelopApp({
   const [q, setQ] = useState('');
 
   const step: PipelineStep = useMemo(
-    () => store.data.find((s) => s.code === tab) ?? store.data[0],
-    [store.data, tab],
+    () => data.find((s) => s.code === tab) ?? data[0],
+    [data, tab],
   );
-  const lines = store.lines[tab] ?? [];
+  const lines = linesAll[tab] ?? [];
   const smeta = statusMeta[store.activeProject.status];
 
   // search theo id / mô tả / #tag — áp dụng mọi user
@@ -47,13 +59,13 @@ export default function DevelopApp({
     });
   }, [lines, q]);
 
-  const genFor = (l: Line) => setGen({ title: `${l.idText} · ${step.title}`, text: genPromptFor(step, l, store.lines) });
+  const genFor = (l: Line) => setGen({ title: `${l.idText} · ${step.title}`, text: genPromptFor(step, l, linesAll) });
 
   const genLines = (picked: Line[]) => {
     if (!picked.length) return;
     setGen({
-      title: `${tab} · ${picked.length}/${lines.length} lines được chọn`,
-      text: picked.map((l) => genPromptFor(step, l, store.lines)).join('\n\n' + '─'.repeat(46) + '\n\n'),
+      title: `${tab} · ${picked.length}/${lines.length} lines được chọn${preview ? ' · snapshot' : ''}`,
+      text: picked.map((l) => genPromptFor(step, l, linesAll)).join('\n\n'),
     });
     if (canLog) store.logActive(`GEN ${tab} · ${picked.length} line(s)`);
   };
@@ -66,12 +78,16 @@ export default function DevelopApp({
   const runFull = () => {
     const agent = agents.find((a) => a.id === agentId) ?? agents[0];
     const text = buildFullProject({
-      projectName: store.activeProject.name,
-      data: store.data,
-      lines: store.lines,
+      projectName: preview && previewEntry ? previewEntry.projectName : store.activeProject.name,
+      projectCode: preview && previewEntry ? previewEntry.projectCode : store.activeProject.pcode,
+      data,
+      lines: linesAll,
       agent,
     });
-    setGen({ title: `GEN FULL · ${store.activeProject.name} · ${agent.label}`, text });
+    setGen({
+      title: `GEN FULL · ${preview && previewEntry ? `${previewEntry.projectCode ?? ''} ${previewEntry.projectName}` : store.activeProject.name} · ${agent.label}`,
+      text,
+    });
     if (canLog) store.logActive(`GEN FULL master prompt · agent: ${agent.label}`);
     setAgentOpen(false);
   };
@@ -91,10 +107,10 @@ export default function DevelopApp({
       <div className="sticky top-14 z-40 border-b border-slate-200 bg-white/90 backdrop-blur-xl">
         <div className="mx-auto flex max-w-[1500px] items-center gap-3 px-4 sm:px-6">
           <div className="scroll-x flex flex-1 items-center gap-1 overflow-x-auto py-2">
-            {store.data.map((s) => {
+            {data.map((s) => {
               const t = stepTheme[s.code];
               const active = s.code === tab;
-              const n = store.lines[s.code]?.length ?? 0;
+              const n = linesAll[s.code]?.length ?? 0;
               return (
                 <button
                   key={s.code}
@@ -127,39 +143,83 @@ export default function DevelopApp({
                 Data {tab} ↩
               </button>
             )}
-            <button
-              onClick={goProduction}
-              title="Mở project tại Production hub"
-              className="flex h-9 max-w-56 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-left shadow-sm transition-all hover:border-indigo-300 hover:shadow-md"
-            >
-              <FolderKanban size={13} className="shrink-0 text-indigo-500" />
-              <span className="truncate text-[12px] font-bold text-slate-800">{store.activeProject.name}</span>
-              <span className={`h-2 w-2 shrink-0 rounded-full ${smeta.dot}`} title={smeta.label} />
-            </button>
-            <button
-              onClick={() => setAgentOpen(true)}
-              title="GEN FULL — master prompt 8 sections cho AI Agent"
-              className="sheen relative flex h-9 items-center gap-1.5 overflow-hidden rounded-xl bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-600 px-3.5 text-[12px] font-bold text-white shadow-lg shadow-indigo-500/25 transition-all hover:-translate-y-0.5"
-            >
-              <Bot size={14} />
-              <span className="hidden sm:inline">GEN FULL</span>
-            </button>
+            {preview && previewEntry ? (
+              <span
+                className="flex h-9 max-w-64 items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 text-left"
+                title="Snapshot read-only từ review queue"
+              >
+                <Eye size={13} className="shrink-0 text-amber-500" />
+                <span className="shrink-0 rounded bg-slate-900 px-1 py-0.5 font-mono text-[9px] font-bold text-white">{previewEntry.projectCode ?? 'PRJ-????'}</span>
+                <span className="truncate text-[12px] font-bold text-amber-800">{previewEntry.projectName}</span>
+              </span>
+            ) : (
+              <button
+                onClick={goProduction}
+                title="Mở project tại Production hub"
+                className="flex h-9 max-w-56 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-left shadow-sm transition-all hover:border-indigo-300 hover:shadow-md"
+              >
+                <FolderKanban size={13} className="shrink-0 text-indigo-500" />
+                <span className="shrink-0 rounded bg-slate-900 px-1 py-0.5 font-mono text-[9px] font-bold text-white">{store.activeProject.pcode}</span>
+                <span className="truncate text-[12px] font-bold text-slate-800">{store.activeProject.name}</span>
+                <span className={`h-2 w-2 shrink-0 rounded-full ${smeta.dot}`} title={smeta.label} />
+              </button>
+            )}
+            {perms.genFull && (
+              <button
+                onClick={() => setAgentOpen(true)}
+                title="GEN FULL — master prompt 8 sections cho AI Agent"
+                className="sheen relative flex h-9 items-center gap-1.5 overflow-hidden rounded-xl bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-600 px-3.5 text-[12px] font-bold text-white shadow-lg shadow-indigo-500/25 transition-all hover:-translate-y-0.5"
+              >
+                <Bot size={14} />
+                <span className="hidden sm:inline">GEN FULL</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
 
+      {/* ---------- PREVIEW banner (Admin/L3 review snapshot) ---------- */}
+      {preview && previewEntry && (
+        <div className="border-b border-slate-800 bg-slate-900">
+          <div className="mx-auto flex max-w-[1500px] flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-amber-400/15 text-amber-300">
+              <Eye size={17} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="font-mono text-[9px] font-bold uppercase tracking-[0.26em] text-amber-300">
+                Read-only snapshot · review queue · {queueStatusMeta[previewEntry.status].label}
+              </p>
+              <p className="truncate text-[13px] font-bold text-white">
+                {previewEntry.projectCode ?? 'PRJ-????'} · {previewEntry.projectName}
+                <span className="ml-2 flex items-center gap-1 font-mono text-[10px] font-normal text-slate-400">
+                  <Users size={10} /> @{previewEntry.ownerName} · submitted {fmtTime(previewEntry.submittedAt)}
+                </span>
+              </p>
+            </div>
+            <span className="hidden text-[11px] text-slate-400 md:block">Chỉ xem & GEN — không thể sửa nội dung snapshot</span>
+            <button
+              onClick={goProduction}
+              className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-white px-3 text-[11.5px] font-bold text-slate-900 shadow transition-all hover:-translate-y-0.5 hover:bg-amber-300"
+            >
+              <X size={13} />
+              Exit review
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ---------- header ---------- */}
       <div className="mx-auto max-w-[1500px] px-4 pb-16 pt-6 sm:px-6">
-        {store.isLocked && (
+        {store.isLocked && !preview && (
           <div className="mb-4 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-[12px] font-semibold text-emerald-700">
             <Lock size={13} />
             Project đã FINALIZE — chế độ chỉ đọc. Muốn chỉnh sửa hãy nhân bản project tại Production hub.
           </div>
         )}
-        {!store.isLocked && !perms.editDevelop && (
+        {!preview && !store.isLocked && !perms.editDevelop && (
           <div className="mb-4 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-100 px-4 py-2.5 text-[12px] font-semibold text-slate-500">
             <Eye size={13} />
-            Chế độ chỉ xem (<b className="text-slate-700">{user ? roleMeta[user.role].label : ''}</b>) — bạn có thể GEN/copy output, nhưng không chỉnh lines. {perms.reviewApprove ? 'Bạn được phép review & approve ở Production hub.' : ''}
+            Chế độ chỉ xem (<b className="text-slate-700">{user ? roleMeta[user.role].label : ''}</b>) — {perms.genTab ? 'bạn có thể GEN/copy output, nhưng không chỉnh lines.' : 'chỉ được GEN từng line (nút GEN trên mỗi line); không GEN tab / GEN FULL / chỉnh sửa.'}
           </div>
         )}
 
@@ -198,14 +258,16 @@ export default function DevelopApp({
               <Plus size={14} strokeWidth={2.5} />
               Thêm line
             </button>
-            <button
-              onClick={openPicker}
-              disabled={!lines.length}
-              className="flex h-9 items-center gap-1.5 rounded-full border border-slate-300 bg-white px-4 text-[12px] font-bold text-slate-700 shadow-sm transition-all enabled:hover:-translate-y-0.5 enabled:hover:border-indigo-400 enabled:hover:text-indigo-600 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <ListChecks size={14} />
-              GEN {tab}
-            </button>
+            {perms.genTab && (
+              <button
+                onClick={openPicker}
+                disabled={!lines.length}
+                className="flex h-9 items-center gap-1.5 rounded-full border border-slate-300 bg-white px-4 text-[12px] font-bold text-slate-700 shadow-sm transition-all enabled:hover:-translate-y-0.5 enabled:hover:border-indigo-400 enabled:hover:text-indigo-600 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ListChecks size={14} />
+                GEN {tab}
+              </button>
+            )}
             <button
               onClick={goProduction}
               className="flex h-9 items-center gap-1.5 rounded-full border border-slate-300 bg-white px-4 text-[12px] font-bold text-slate-700 shadow-sm transition-all hover:-translate-y-0.5 hover:border-slate-400"
@@ -240,7 +302,7 @@ export default function DevelopApp({
             </button>
           )}
           {filtered.map((l) => (
-            <LineCard key={l.uid} step={step} line={l} readOnly={readOnly} onGen={() => genFor(l)} />
+            <LineCard key={l.uid} step={step} line={l} readOnly={readOnly} allLines={linesAll} onGen={() => genFor(l)} />
           ))}
           {lines.length > 0 && !readOnly && !q && (
             <button
@@ -388,7 +450,7 @@ export default function DevelopApp({
             </pre>
             <div className="border-t border-white/10 bg-white/[0.03] px-5 py-2.5">
               <span className="text-[10.5px] text-slate-500">
-                Category bị bỏ tick không xuất hiện · GEN FULL gồm 8 sections + consistency lock cho AI Agent.
+                Prompt 100% tiếng Anh chuẩn điện ảnh · category bỏ tick không xuất hiện · GEN FULL tự loại step rỗng, copy-paste vào AI Agent dùng ngay.
               </span>
             </div>
           </div>
