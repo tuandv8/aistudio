@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
-import { BookMarked, Bot, Check, Copy, Eye, FolderKanban, ListChecks, Lock, Plus, Rocket, Search, Users, Wand2, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { AudioLines, BookMarked, Bot, Check, Copy, Eye, FolderKanban, ListChecks, Lock, Music4, Plus, Rocket, Search, Star, Users, Wand2, X } from 'lucide-react';
 import type { PipelineStep } from '../data/pipeline';
-import { statusMeta, useStore, type Line } from '../store';
+import { statusMeta, useStore, type Domain, type Line } from '../store';
 import { queueStatusMeta, useQueue } from '../reviewQueue';
 import { roleMeta, useAuth } from '../auth';
+import { audiences, audienceById, resolveRecs } from '../data/audiences';
 import { stepTheme } from '../theme';
 import LineCard from '../production/LineCard';
 import { agents, buildFullProject, genPromptFor, type AgentOpt } from '../production/genPrompt';
@@ -12,15 +13,27 @@ const fmtTime = (at: number) =>
   new Date(at).toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
 
 export default function DevelopApp({
+  domain,
   goProduction,
   goBlueprintAt,
 }: {
+  domain: Domain;
   goProduction: () => void;
   goBlueprintAt?: (stepCode?: string) => void;
 }) {
   const store = useStore();
   const queue = useQueue();
   const { user, perms } = useAuth();
+  const music = domain === 'music';
+
+  // đảm bảo project đang mở thuộc đúng pipeline của sidebar
+  const domainProjects = store.projects.filter((p) => (p.domain ?? 'video') === domain);
+  useEffect(() => {
+    if ((store.activeProject.domain ?? 'video') !== domain && domainProjects.length) {
+      store.openProject(domainProjects[0].pid);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [domain, domainProjects.length]);
 
   // PREVIEW MODE: Admin/L3 mở snapshot từ review queue — chỉ xem, không sửa
   const previewEntry = queue.previewQid ? queue.entries.find((e) => e.qid === queue.previewQid) ?? null : null;
@@ -45,6 +58,48 @@ export default function DevelopApp({
   );
   const lines = linesAll[tab] ?? [];
   const smeta = statusMeta[store.activeProject.status];
+
+  /* ---------- đối tượng khán giả (music) → lối đi & gợi ý ---------- */
+  const audience = music ? audienceById(store.activeProject.audience) ?? audiences[0] : undefined;
+  const recs = useMemo(
+    () => (audience ? resolveRecs(audience, data) : {}),
+    [audience, data],
+  );
+  const recCount = Object.keys(recs).length;
+
+  const applyPathToLine = (l: Line) => {
+    if (!audience || readOnly) return;
+    Object.entries(recs).forEach(([catId, idxs]) => {
+      const cat = step.categories.find((c) => c.id === catId);
+      if (!cat) return;
+      if (cat.control === 'multi') store.setCell(tab, l.uid, catId, { on: true, picks: idxs });
+      else store.setCell(tab, l.uid, catId, { on: true, i: idxs[0] });
+    });
+    if (canLog) store.logActive(`Áp dụng lối đi “${audience.vi}” vào ${l.idText} (${recCount} category)`);
+  };
+
+  const addLineWithPath = () => {
+    const l = store.addLine(tab);
+    if (audience) setTimeout(() => applyPathToLine(l), 0);
+  };
+
+  // đổi pipeline → tab phải tồn tại trong data hiện tại
+  useEffect(() => {
+    if (!data.some((s) => s.code === tab)) setTab(data[0]?.code ?? 'ST');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [domain, data]);
+
+  // pipeline chưa có project nào + user được quyền quản lý → tự tạo 1 project khởi điểm
+  useEffect(() => {
+    if (preview) return;
+    if (domainProjects.length === 0 && perms.manageProjects && !store.isLocked) {
+      const pid = store.createProject(music ? 'MV Project 01' : 'Project 01', domain);
+      if (music) store.setAudience(pid, audiences[0].id); // trẻ em = mặc định
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [domain, domainProjects.length]);
+
+  const noDomainProject = !preview && domainProjects.length === 0;
 
   // search theo id / mô tả / #tag — áp dụng mọi user
   const filtered = useMemo(() => {
@@ -100,6 +155,33 @@ export default function DevelopApp({
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
+
+  // không có project cho pipeline này và không được quyền tạo (L1)
+  if (noDomainProject && !perms.manageProjects) {
+    return (
+      <div className="grid min-h-screen place-items-center bg-slate-50/60 px-4 pt-14">
+        <div className="max-w-md rounded-2xl border border-slate-200 bg-white p-7 text-center shadow-sm">
+          <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-slate-100 text-slate-400">
+            {music ? <Music4 size={22} /> : <FolderKanban size={22} />}
+          </span>
+          <h2 className="mt-4 font-display text-lg font-extrabold tracking-tight text-slate-900">
+            Chưa có project {music ? 'music video' : 'video'} nào
+          </h2>
+          <p className="mt-2 text-[12.5px] leading-relaxed text-slate-500">
+            Với quyền {user ? roleMeta[user.role].label : ''}, bạn chỉ xem được project đã tồn tại.
+            Hãy chờ Developer (L2+) tạo project, hoặc liên hệ Admin.
+          </p>
+          <button
+            onClick={goProduction}
+            className="mt-5 inline-flex h-9 items-center gap-1.5 rounded-full bg-slate-900 px-4 text-[12px] font-bold text-white transition-all hover:-translate-y-0.5 hover:bg-indigo-600"
+          >
+            <Rocket size={14} />
+            Sang Production hub
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50/60 pt-14">
@@ -208,6 +290,67 @@ export default function DevelopApp({
         </div>
       )}
 
+      {/* ---------- AUDIENCE · LỐI ĐI (chỉ music) ---------- */}
+      {music && !preview && (
+        <div className="border-b border-amber-200/70 bg-gradient-to-r from-amber-50 via-orange-50/40 to-white">
+          <div className="mx-auto max-w-[1500px] px-4 py-3.5 sm:px-6">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="flex shrink-0 items-center gap-1.5 font-mono text-[9px] font-bold uppercase tracking-[0.24em] text-amber-600">
+                <AudioLines size={12} />
+                đối tượng xem – nghe
+              </span>
+              <div className="scroll-x flex flex-1 items-center gap-1.5 overflow-x-auto py-1">
+                {audiences.map((a) => {
+                  const on = a.id === audience?.id;
+                  return (
+                    <button
+                      key={a.id}
+                      onClick={() => store.setAudience(store.activePid, a.id)}
+                      disabled={readOnly}
+                      title={a.headline}
+                      className={`flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-bold transition-all disabled:cursor-not-allowed ${
+                        on
+                          ? `${a.color.chip} border-transparent shadow-sm`
+                          : 'border-slate-200 bg-white text-slate-500 hover:border-amber-300 hover:text-amber-700'
+                      }`}
+                    >
+                      {a.priority <= 2 && <Star size={10} className={on ? 'fill-amber-500 text-amber-500' : 'text-amber-400'} />}
+                      {a.vi}
+                      <span className={`font-mono text-[8.5px] ${on ? 'text-amber-600/70' : 'text-slate-300'}`}>#{a.priority}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                onClick={() => goBlueprintAt?.()}
+                className="hidden h-7 shrink-0 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 text-[11px] font-bold text-slate-500 transition-all hover:border-amber-300 hover:text-amber-700 sm:flex"
+              >
+                Xem lối đi đầy đủ
+              </button>
+            </div>
+
+            {audience && (
+              <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11.5px] text-slate-500">
+                <span className="flex items-center gap-1.5">
+                  <span className={`h-1.5 w-1.5 rounded-full ${audience.color.dot}`} />
+                  <b className="text-slate-700">{audience.vi}</b>
+                  <span className="text-slate-400">· {audience.tone}</span>
+                </span>
+                <span className="font-mono text-[9.5px] uppercase tracking-widest text-amber-600">
+                  ★ {recCount} gợi ý đang áp dụng
+                </span>
+                {audience.priority <= 2 && (
+                  <span className="flex items-center gap-1.5 rounded-md bg-rose-50 px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-widest text-rose-600">
+                    <Lock size={10} />
+                    {audience.guardrails[0]}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ---------- header ---------- */}
       <div className="mx-auto max-w-[1500px] px-4 pb-16 pt-6 sm:px-6">
         {store.isLocked && !preview && (
@@ -251,12 +394,13 @@ export default function DevelopApp({
               )}
             </label>
             <button
-              onClick={() => store.addLine(tab)}
+              onClick={audience ? addLineWithPath : () => store.addLine(tab)}
               disabled={readOnly}
+              title={audience ? 'Tạo line và điền sẵn theo lối đi của đối tượng' : 'Thêm line mới'}
               className="flex h-9 items-center gap-1.5 rounded-full bg-slate-900 px-4 text-[12px] font-bold text-white shadow-md transition-all enabled:hover:-translate-y-0.5 enabled:hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              <Plus size={14} strokeWidth={2.5} />
-              Thêm line
+              {audience ? <Star size={14} className="fill-amber-400 text-amber-400" /> : <Plus size={14} strokeWidth={2.5} />}
+              Thêm line{audience ? ' theo lối đi' : ''}
             </button>
             {perms.genTab && (
               <button
@@ -302,7 +446,16 @@ export default function DevelopApp({
             </button>
           )}
           {filtered.map((l) => (
-            <LineCard key={l.uid} step={step} line={l} readOnly={readOnly} allLines={linesAll} onGen={() => genFor(l)} />
+            <LineCard
+              key={l.uid}
+              step={step}
+              line={l}
+              readOnly={readOnly}
+              allLines={linesAll}
+              recs={audience ? recs : undefined}
+              onApplyPath={audience && !preview ? () => applyPathToLine(l) : undefined}
+              onGen={() => genFor(l)}
+            />
           ))}
           {lines.length > 0 && !readOnly && !q && (
             <button

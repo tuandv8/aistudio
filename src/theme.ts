@@ -70,4 +70,72 @@ export const stepTheme: Record<string, StepTheme> = {
     chipText: 'text-fuchsia-900', dot: 'bg-fuchsia-500',
     grad: 'from-fuchsia-600 to-pink-500', badge: 'bg-fuchsia-600', pill: 'hover:border-fuchsia-300',
   },
+
+  /* ---- AI MUSIC VIDEO PIPELINE ---- */
+  SG: {
+    text: 'text-amber-600', textSoft: 'text-amber-400',
+    bg: 'bg-amber-500', bgSoft: 'bg-amber-50',
+    border: 'border-amber-200', chipBg: 'bg-amber-50/70', chipBorder: 'border-amber-200/80',
+    chipText: 'text-amber-900', dot: 'bg-amber-500',
+    grad: 'from-amber-500 to-orange-500', badge: 'bg-amber-500', pill: 'hover:border-amber-300',
+  },
+  SW: {
+    text: 'text-teal-600', textSoft: 'text-teal-400',
+    bg: 'bg-teal-600', bgSoft: 'bg-teal-50',
+    border: 'border-teal-200', chipBg: 'bg-teal-50/70', chipBorder: 'border-teal-200/80',
+    chipText: 'text-teal-900', dot: 'bg-teal-500',
+    grad: 'from-teal-600 to-cyan-500', badge: 'bg-teal-600', pill: 'hover:border-teal-300',
+  },
+  AR: {
+    text: 'text-rose-600', textSoft: 'text-rose-400',
+    bg: 'bg-rose-600', bgSoft: 'bg-rose-50',
+    border: 'border-rose-200', chipBg: 'bg-rose-50/70', chipBorder: 'border-rose-200/80',
+    chipText: 'text-rose-900', dot: 'bg-rose-500',
+    grad: 'from-rose-600 to-red-500', badge: 'bg-rose-600', pill: 'hover:border-rose-300',
+  },
+  VN: {
+    text: 'text-orange-600', textSoft: 'text-orange-400',
+    bg: 'bg-orange-500', bgSoft: 'bg-orange-50',
+    border: 'border-orange-200', chipBg: 'bg-orange-50/70', chipBorder: 'border-orange-200/80',
+    chipText: 'text-orange-900', dot: 'bg-orange-500',
+    grad: 'from-orange-500 to-amber-500', badge: 'bg-orange-500', pill: 'hover:border-orange-300',
+  },
+  LY: {
+    text: 'text-emerald-600', textSoft: 'text-emerald-400',
+    bg: 'bg-emerald-600', bgSoft: 'bg-emerald-50',
+    border: 'border-emerald-200', chipBg: 'bg-emerald-50/70', chipBorder: 'border-emerald-200/80',
+    chipText: 'text-emerald-900', dot: 'bg-emerald-500',
+    grad: 'from-emerald-600 to-green-500', badge: 'bg-emerald-600', pill: 'hover:border-emerald-300',
+  },
+  VC: {
+    text: 'text-cyan-600', textSoft: 'text-cyan-400',
+    bg: 'bg-cyan-600', bgSoft: 'bg-cyan-50',
+    border: 'border-cyan-200', chipBg: 'bg-cyan-50/70', chipBorder: 'border-cyan-200/80',
+    chipText: 'text-cyan-900', dot: 'bg-cyan-500',
+    grad: 'from-cyan-600 to-sky-500', badge: 'bg-cyan-600', pill: 'hover:border-cyan-300',
+  },
+  SQ: {
+    text: 'text-sky-600', textSoft: 'text-sky-400',
+    bg: 'bg-sky-600', bgSoft: 'bg-sky-50',
+    border: 'border-sky-200', chipBg: 'bg-sky-50/70', chipBorder: 'border-sky-200/80',
+    chipText: 'text-sky-900', dot: 'bg-sky-500',
+    grad: 'from-sky-600 to-blue-500', badge: 'bg-sky-600', pill: 'hover:border-sky-300',
+  },
+  MS: {
+    text: 'text-fuchsia-600', textSoft: 'text-fuchsia-400',
+    bg: 'bg-fuchsia-600', bgSoft: 'bg-fuchsia-50',
+    border: 'border-fuchsia-200', chipBg: 'bg-fuchsia-50/70', chipBorder: 'border-fuchsia-200/80',
+    chipText: 'text-fuchsia-900', dot: 'bg-fuchsia-500',
+    grad: 'from-fuchsia-600 to-pink-500', badge: 'bg-fuchsia-600', pill: 'hover:border-fuchsia-300',
+  },
 };
+
+/** theme an toàn: không có mã thì trả mặc định slate */
+export const themeOf = (code: string): StepTheme =>
+  stepTheme[code] ?? {
+    text: 'text-slate-600', textSoft: 'text-slate-400',
+    bg: 'bg-slate-600', bgSoft: 'bg-slate-50',
+    border: 'border-slate-200', chipBg: 'bg-slate-50/70', chipBorder: 'border-slate-200/80',
+    chipText: 'text-slate-900', dot: 'bg-slate-500',
+    grad: 'from-slate-600 to-slate-500', badge: 'bg-slate-600', pill: 'hover:border-slate-300',
+  };

@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Check, ChevronDown, SearchX } from 'lucide-react';
+import { Check, ChevronDown, SearchX, Star } from 'lucide-react';
 import type { SuggestionItem } from '../data/pipeline';
 import Popover from './Popover';
 
@@ -9,12 +9,15 @@ export default function ComboPicker({
   value,
   onPick,
   disabled,
+  recIdx,
   placeholder = '— trống —',
 }: {
   items: SuggestionItem[];
   value: number;
   onPick: (i: number) => void;
   disabled?: boolean;
+  /** index item được "lối đi" của đối tượng khán giả khuyến nghị */
+  recIdx?: number;
   placeholder?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -39,7 +42,9 @@ export default function ComboPicker({
             ? 'cursor-not-allowed border-slate-100 bg-slate-50 text-slate-300'
             : open
               ? 'border-indigo-400 bg-white ring-2 ring-indigo-100'
-              : 'border-slate-200 bg-white hover:border-slate-300'
+              : value === recIdx && recIdx !== undefined
+                ? 'border-amber-400 bg-amber-50/70 hover:border-amber-500'
+                : 'border-slate-200 bg-white hover:border-slate-300'
         }`}
       >
         <span className="min-w-0 flex-1">
@@ -81,13 +86,16 @@ export default function ComboPicker({
               }`}
             >
               <span className="min-w-0">
-                <span className="block truncate text-[12px] font-semibold">
-                  {it.en}
-                  {it.custom && (
-                    <span className="ml-1.5 rounded bg-emerald-100 px-1 py-px align-middle font-mono text-[8px] font-bold uppercase tracking-wider text-emerald-600">
-                      custom
-                    </span>
-                  )}
+                <span className="flex items-center gap-1.5">
+                  {recIdx === i && <Star size={10} className="shrink-0 fill-amber-400 text-amber-500" />}
+                  <span className="block truncate text-[12px] font-semibold">
+                    {it.en}
+                    {it.custom && (
+                      <span className="ml-1.5 rounded bg-emerald-100 px-1 py-px align-middle font-mono text-[8px] font-bold uppercase tracking-wider text-emerald-600">
+                        custom
+                      </span>
+                    )}
+                  </span>
                 </span>
                 {it.vi && <span className="block truncate text-[10px] text-slate-400">{it.vi}</span>}
               </span>

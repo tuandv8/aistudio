@@ -1,23 +1,28 @@
 import { useEffect, useState } from 'react';
-import { BookMarked, Clapperboard, FlaskConical, Lock, LogOut, Rocket } from 'lucide-react';
-import { useStore } from '../store';
+import { AudioLines, BookMarked, Clapperboard, Film, FlaskConical, Lock, LogOut, Music4, PanelLeft, Rocket } from 'lucide-react';
+import { useStore, type Domain } from '../store';
 import { roleMeta, useAuth } from '../auth';
 import { stepTheme } from '../theme';
 
 export default function Navbar({
   view,
   setView,
+  domain,
+  onToggleSidebar,
 }: {
   view: 'blueprint' | 'develop' | 'production';
   setView: (v: 'blueprint' | 'develop' | 'production') => void;
+  domain: Domain;
+  onToggleSidebar: () => void;
 }) {
   const { data } = useStore();
   const { user, perms, logout } = useAuth();
   const [active, setActive] = useState('overview');
   const [progress, setProgress] = useState(0);
+  const music = domain === 'music';
 
   useEffect(() => {
-    if (view !== 'blueprint') return;
+    if (view !== 'blueprint' || music) return;
     const ids = ['overview', ...data.map((s) => `step-${s.code}`), 'decisions'];
     const io = new IntersectionObserver(
       (entries) => entries.forEach((e) => e.isIntersecting && setActive(e.target.id)),
@@ -34,7 +39,7 @@ export default function Navbar({
       io.disconnect();
       window.removeEventListener('scroll', onScroll);
     };
-  }, [view, data]);
+  }, [view, data, music]);
 
   const go = (id: string) => (e: React.MouseEvent) => {
     e.preventDefault();
@@ -43,15 +48,32 @@ export default function Navbar({
 
   return (
     <header className="fixed inset-x-0 top-0 z-50 border-b border-slate-200/80 bg-white/80 backdrop-blur-xl">
-      <div className="mx-auto flex h-14 max-w-[1500px] items-center gap-3 px-4 sm:px-6">
-        {/* logo */}
+      <div className="mx-auto flex h-14 max-w-[1500px] items-center gap-2.5 px-4 sm:px-6">
+        {/* sidebar toggle */}
+        <button
+          onClick={onToggleSidebar}
+          title="Ẩn / hiện sidebar (phím [)"
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-all hover:border-slate-300 hover:text-slate-800"
+        >
+          <PanelLeft size={15} />
+        </button>
+
+        {/* logo + domain */}
         <a href="#overview" onClick={(e) => { e.preventDefault(); setView('blueprint'); }} className="flex shrink-0 items-center gap-2.5">
-          <span className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-600/25">
-            <Clapperboard size={16} strokeWidth={2.2} />
+          <span
+            className={`grid h-8 w-8 place-items-center rounded-lg text-white shadow-md ${
+              music ? 'bg-gradient-to-br from-amber-500 to-orange-600 shadow-orange-500/25' : 'bg-gradient-to-br from-indigo-600 to-violet-600 shadow-indigo-600/25'
+            }`}
+          >
+            {music ? <Music4 size={16} strokeWidth={2.2} /> : <Clapperboard size={16} strokeWidth={2.2} />}
           </span>
           <span className="hidden font-display sm:block">
-            <span className="block text-[13px] font-bold leading-none tracking-tight text-slate-900">AI VIDEO PIPELINE</span>
-            <span className="block pt-1 font-mono text-[9.5px] uppercase tracking-[0.22em] text-indigo-500">v1.1 · open system</span>
+            <span className="block text-[12.5px] font-bold leading-none tracking-tight text-slate-900">
+              {music ? 'AI MUSIC VIDEO PIPELINE' : 'AI VIDEO PIPELINE'}
+            </span>
+            <span className={`block pt-1 font-mono text-[9px] uppercase tracking-[0.22em] ${music ? 'text-amber-600' : 'text-indigo-500'}`}>
+              {music ? 'SG → MS · audience-first' : 'ST → SH · v1.1 open system'}
+            </span>
           </span>
         </a>
 
@@ -65,7 +87,9 @@ export default function Navbar({
               !perms.blueprint
                 ? 'cursor-not-allowed text-slate-300'
                 : view === 'blueprint'
-                  ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-600/25'
+                  ? music
+                    ? 'bg-gradient-to-r from-amber-500 to-orange-600 text-white shadow-md shadow-orange-500/25'
+                    : 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-600/25'
                   : 'text-slate-500 hover:text-slate-800'
             }`}
           >
@@ -95,8 +119,8 @@ export default function Navbar({
           </button>
         </nav>
 
-        {/* step pills — chỉ ở blueprint */}
-        {view === 'blueprint' && (
+        {/* step pills — chỉ ở blueprint video */}
+        {view === 'blueprint' && !music && (
           <nav className="scroll-x -mb-px ml-auto hidden items-center gap-1 overflow-x-auto py-2 md:flex">
             {data.map((s) => {
               const t = stepTheme[s.code];
@@ -134,17 +158,29 @@ export default function Navbar({
             </a>
           </nav>
         )}
+        {view === 'blueprint' && music && (
+          <span className="ml-auto hidden items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 font-mono text-[10px] font-bold uppercase tracking-widest text-amber-700 md:flex">
+            <AudioLines size={12} />
+            audience-first · trẻ em ưu tiên #1
+          </span>
+        )}
+        {view !== 'blueprint' && (
+          <span className="ml-auto hidden items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 font-mono text-[10px] font-bold uppercase tracking-widest text-slate-500 md:flex">
+            {music ? <Music4 size={12} className="text-amber-500" /> : <Film size={12} className="text-indigo-500" />}
+            {music ? 'music pipeline' : 'video pipeline'}
+          </span>
+        )}
 
         {/* ---------- user chip ---------- */}
         {user && (
-          <div className={`flex shrink-0 items-center gap-2 ${view === 'blueprint' ? 'ml-2' : 'ml-auto'}`}>
+          <div className={`flex shrink-0 items-center gap-2 ${view === 'blueprint' && !music ? 'ml-2' : 'ml-2 md:ml-0'}`}>
             <span
               className={`grid h-7 w-7 place-items-center rounded-lg bg-gradient-to-br ${roleMeta[user.role].avatar} font-mono text-[10px] font-bold text-white shadow`}
               title={`${user.displayName} · ${roleMeta[user.role].label}`}
             >
               {user.initials}
             </span>
-            <span className="hidden leading-none lg:block">
+            <span className="hidden leading-none xl:block">
               <span className="block text-[11px] font-bold text-slate-800">{user.displayName}</span>
               <span className="mt-1 block font-mono text-[8.5px] font-bold uppercase tracking-widest text-slate-400">
                 {roleMeta[user.role].short}
@@ -162,8 +198,8 @@ export default function Navbar({
       </div>
       <div className="absolute inset-x-0 bottom-0 h-[2px] bg-transparent">
         <div
-          className="h-full bg-gradient-to-r from-indigo-500 via-violet-500 to-fuchsia-500 transition-[width] duration-150 ease-out"
-          style={{ width: view === 'blueprint' ? `${progress}%` : '0%' }}
+          className={`h-full transition-[width] duration-150 ease-out ${music ? 'bg-gradient-to-r from-amber-400 via-orange-500 to-rose-500' : 'bg-gradient-to-r from-indigo-500 via-violet-500 to-fuchsia-500'}`}
+          style={{ width: view === 'blueprint' && !music ? `${progress}%` : '0%' }}
         />
       </div>
     </header>

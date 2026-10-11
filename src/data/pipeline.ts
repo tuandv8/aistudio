@@ -29,7 +29,8 @@ export interface Category {
   vi: string;
   control: ControlType;
   required?: boolean;
-  group?: CharGroup;
+  /** nhóm hiển thị: form · portrait · body (character) / camera · look · action · audio (shot) */
+  group?: CharGroup | 'camera' | 'look' | 'action' | 'audio';
   note?: string;
   /** category do ngườI dùNG tự thêm — cho phép sửa/xóa; built-in thì không */
   custom?: boolean;
@@ -43,6 +44,8 @@ export interface PipelineStep {
   titleVi: string;
   purpose: string;
   output: string;
+  /** 'portrait-body' = group form/portrait/body · 'shot' = group camera/look/action/audio */
+  layout?: 'portrait-body' | 'shot';
   categories: Category[];
 }
 

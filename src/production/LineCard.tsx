@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Check, Dices, Link2, Lock, LockOpen, Trash2, Wand2, X } from 'lucide-react';
+import { Check, Dices, Link2, Lock, LockOpen, Star, Trash2, Wand2, X } from 'lucide-react';
 import type { Category, PipelineStep } from '../data/pipeline';
 import { stepRefDefs, useStore, type Line, type RefDef } from '../store';
 import { stepTheme } from '../theme';
@@ -35,30 +35,34 @@ function CheckboxControl({ cat, i, onPick, disabled }: { cat: Category; i: numbe
 }
 
 /* ---------------- multi control (chọn nhiều) ---------------- */
-function MultiControl({ cat, picks, onToggle, disabled }: { cat: Category; picks: number[]; onToggle: (idx: number) => void; disabled?: boolean }) {
+function MultiControl({ cat, picks, recs, onToggle, disabled }: { cat: Category; picks: number[]; recs?: number[]; onToggle: (idx: number) => void; disabled?: boolean }) {
   return (
     <div className="flex flex-wrap gap-1">
       {cat.items.map((it, idx) => {
         const on = picks.includes(idx);
+        const isRec = recs?.includes(idx);
         return (
           <button
             key={`${it.en}-${idx}`}
             type="button"
             disabled={disabled}
             onClick={() => onToggle(idx)}
-            title={it.vi}
             className={`flex items-center gap-1 rounded-lg border px-2 py-1 text-left transition-all ${
               disabled
                 ? 'cursor-not-allowed border-slate-100 bg-slate-50 text-slate-300'
                 : on
                   ? 'border-amber-400 bg-amber-50 text-amber-700 shadow-sm'
-                  : 'border-slate-200 bg-white text-slate-400 hover:border-amber-300 hover:text-slate-600'
+                  : isRec
+                    ? 'border-dashed border-amber-300 bg-amber-50/40 text-amber-600 hover:border-amber-400'
+                    : 'border-slate-200 bg-white text-slate-400 hover:border-amber-300 hover:text-slate-600'
             }`}
+            title={isRec ? `Lối đi khuyến nghị${it.vi ? ` · ${it.vi}` : ''}` : it.vi}
           >
             <span className={`grid h-3 w-3 place-items-center rounded-sm ${on && !disabled ? 'bg-amber-500 text-white' : 'bg-slate-200 text-transparent'}`}>
               <Check size={8} strokeWidth={4} />
             </span>
             <span className="text-[10.5px] font-semibold leading-none">{it.en}</span>
+            {isRec && <Star size={8} className="fill-amber-400 text-amber-400" />}
           </button>
         );
       })}
@@ -142,6 +146,8 @@ export default function LineCard({
   onGen,
   readOnly,
   allLines,
+  recs,
+  onApplyPath,
 }: {
   step: PipelineStep;
   line: Line;
@@ -149,6 +155,10 @@ export default function LineCard({
   readOnly?: boolean;
   /** pool lines cho ref-picker — ở preview mode là lines của SNAPSHOT, không phải workspace */
   allLines?: Record<string, Line[]>;
+  /** gợi ý theo đối tượng khán giả: catId → index item khuyến nghị */
+  recs?: Record<string, number[]>;
+  /** điền toàn bộ gợi ý của "lối đi" vào line */
+  onApplyPath?: () => void;
 }) {
   const t = stepTheme[step.code];
   const store = useStore();
@@ -188,6 +198,18 @@ export default function LineCard({
           </div>
         )}
         <div className="flex items-center gap-1.5">
+          {/* ÁP DỤNG LỐI ĐI (music · theo đối tượng khán giả) */}
+          {onApplyPath && !disabled && (
+            <button
+              type="button"
+              onClick={onApplyPath}
+              title="Điền toàn bộ gợi ý của lối đi (đối tượng khán giả) vào line này"
+              className="flex h-8 items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2.5 text-[11px] font-bold text-amber-700 transition-all hover:-translate-y-0.5 hover:border-amber-400 hover:bg-amber-100"
+            >
+              <Star size={13} className="fill-amber-400 text-amber-500" />
+              Lối đi
+            </button>
+          )}
           {/* LOCK line — bên trái Random; khi locked: cấm sửa nội dung, cấm random & xóa, chỉ GEN */}
           <button
             type="button"
@@ -282,6 +304,7 @@ export default function LineCard({
                 <MultiControl
                   cat={cat}
                   picks={v.picks ?? []}
+                  recs={recs?.[cat.id]}
                   disabled={!v.on || disabled}
                   onToggle={(idx) => store.togglePick(step.code, line.uid, cat.id, idx)}
                 />
@@ -289,6 +312,7 @@ export default function LineCard({
                 <ComboPicker
                   items={cat.items}
                   value={Math.min(v.i, Math.max(0, cat.items.length - 1))}
+                  recIdx={recs?.[cat.id]?.[0]}
                   disabled={!v.on || disabled}
                   onPick={(i) => store.setCell(step.code, line.uid, cat.id, { i })}
                 />

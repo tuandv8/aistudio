@@ -37,6 +37,7 @@ const ids8 = new Set([
   'SH-01', 'SH-02', 'SH-03', 'SH-04', 'SH-05', 'SH-06', 'SH-07',
   'SH-08', 'SH-09', 'SH-10', 'SH-11', 'SH-12', 'SH-13',
 ]);
+const SHOT_GROUPS = ['camera', 'look', 'action', 'audio'];
 
 export interface GenOpts {
   /** false = bỏ footer "Deliverable:" (dùng trong master doc cho gọn) */
@@ -48,8 +49,10 @@ export function genPromptFor(step: PipelineStep, line: Line, allLines: Record<st
   const title = `# ${line.idText} · ${step.title.toUpperCase()}${line.desc ? ` — ${line.desc}` : ''}`;
   const c = step.categories;
 
+  const layout = step.layout ?? (step.code === 'CH' || step.code === 'AR' ? 'portrait-body' : step.code === 'SH' || step.code === 'MS' ? 'shot' : 'plain');
+
   let body: string[] = [];
-  if (step.code === 'CH') {
+  if (layout === 'portrait-body') {
     const grp = (g: string) => c.filter((x) => x.group === g);
     const sheetVals = grp('form')
       .map((x) => {
@@ -70,6 +73,19 @@ export function genPromptFor(step: PipelineStep, line: Line, allLines: Record<st
       'Consistency: identical face, hair, wardrobe and props in every render.',
       'Output: clean neutral background, soft studio lighting, 8K reference quality.',
     );
+  } else if (layout === 'shot' && c.some((x) => SHOT_GROUPS.includes(String(x.group ?? '')))) {
+    // shot dùng group: camera / look / action / audio (music pipeline + data mới)
+    const byGroup = (g: string) => rows(line, c.filter((x) => x.group === g));
+    const cam = byGroup('camera');
+    if (cam.length) body.push('[CAMERA]', ...cam);
+    const look = byGroup('look');
+    if (look.length) body.push('', '[FRAMING · LIGHTING · COLOR]', ...look);
+    const act = byGroup('action');
+    if (act.length) body.push('', '[ACTION & TIMING]', ...act);
+    const aud = byGroup('audio');
+    if (aud.length) body.push('', '[AUDIO]', ...aud);
+    const extra = rows(line, c.filter((x) => !SHOT_GROUPS.includes(String(x.group ?? ''))));
+    if (extra.length) body.push('', '[EXTRA]', ...extra);
   } else if (step.code === 'SH') {
     const grp = (ids: string[]) => rows(line, c.filter((x) => ids.includes(x.id)));
     body.push('[CAMERA]', ...grp(['SH-01', 'SH-02', 'SH-03', 'SH-04', 'SH-05']));
@@ -108,6 +124,15 @@ const FOOTERS: Record<string, string> = {
   VO: 'Deliverable: voice profile for casting / TTS cloning, plus one sample read.',
   SC: 'Deliverable: scene breakdown — main action beats and dramatic purpose.',
   SH: 'Deliverable: ready-to-run shot prompt for Runway / Kling / Veo / Sora.',
+  /* ---- music pipeline ---- */
+  SG: 'Deliverable: song brief — genre, mood, tempo, key, structure and hook strategy for a music AI composer.',
+  SW: 'Deliverable: production brief — arrangement, instrumentation, mix character and loudness target.',
+  AR: 'Deliverable: artist reference sheet (portrait + full body, multiple angles) for visual consistency.',
+  VN: 'Deliverable: stage/venue reference — set design, lighting rig and key dressing.',
+  LY: 'Deliverable: lyrics for the selected section, matching vocabulary level, rhyme scheme and message.',
+  VC: 'Deliverable: vocal profile for casting / singing-voice synthesis, plus one sample line.',
+  SQ: 'Deliverable: sequence breakdown mapped to the song section, with beat-sync cutting rule.',
+  MS: 'Deliverable: ready-to-run music-video shot prompt, beat-synced, for Runway / Kling / Veo / Seedance.',
 };
 
 /* ===================== GEN FULL — master prompt cho AI Agent ===================== */

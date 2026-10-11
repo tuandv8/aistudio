@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
 import {
-  ArrowLeft, Check, ChevronRight, Copy, FolderKanban, FlaskConical, History, Inbox, KeyRound,
-  Lock, PenLine, Plus, Rocket, Send, ShieldCheck, Trash2, Undo2, Users, Wand2, X,
+  ArrowLeft, Check, ChevronRight, Copy, Film, FolderKanban, FlaskConical, History, Inbox, KeyRound,
+  Lock, Music4, PenLine, Plus, Rocket, Send, ShieldCheck, Trash2, Undo2, Users, Wand2, X,
 } from 'lucide-react';
-import { statusMeta, useStore, type Project } from '../store';
+import { statusMeta, useStore, type Domain, type Project } from '../store';
 import { queueStatusMeta, useQueue, type QueueEntry } from '../reviewQueue';
 import { roleMeta, useAuth } from '../auth';
 import { stepTheme } from '../theme';
@@ -40,6 +40,10 @@ function StatusFlow({ status }: { status: string }) {
 
 const totalLines = (p: { lines: Record<string, unknown[]> }) =>
   Object.values(p.lines).reduce((a, l) => a + (l?.length ?? 0), 0);
+
+/** nhận biết submission thuộc pipeline music qua mã step trong snapshot */
+const MUSIC_CODES = new Set(['SG', 'SW', 'AR', 'VN', 'LY', 'VC', 'SQ', 'MS']);
+const isMusicEntry = (e: QueueEntry) => MUSIC_CODES.has(e.snapshot.data[0]?.code ?? '');
 
 /* ================= PROJECT CARD (workspace cá nhân) ================= */
 function ProjectCard({ p, onOpenDevelop }: { p: Project; onOpenDevelop: () => void }) {
@@ -122,6 +126,21 @@ function ProjectCard({ p, onOpenDevelop }: { p: Project; onOpenDevelop: () => vo
                 <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />
                 {meta.label}
               </span>
+              <span
+                className={`flex items-center gap-1 rounded-full px-2 py-0.5 font-mono text-[8.5px] font-bold uppercase tracking-widest ${
+                  (p.domain ?? 'video') === 'music' ? 'bg-amber-100 text-amber-700' : 'bg-indigo-100 text-indigo-700'
+                }`}
+                title="Pipeline của project"
+              >
+                {(p.domain ?? 'video') === 'music' ? <Music4 size={9} /> : <Film size={9} />}
+                {(p.domain ?? 'video') === 'music' ? 'music' : 'video'}
+              </span>
+              {p.domain === 'music' && p.audience && (
+                <span className="flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 font-mono text-[8.5px] font-bold uppercase tracking-widest text-rose-600">
+                  <Users size={9} />
+                  {p.audience}
+                </span>
+              )}
               {inQueue && qEntry && (
                 <span className="flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 font-mono text-[8.5px] font-bold uppercase tracking-widest text-amber-700">
                   <Send size={9} />
@@ -278,6 +297,13 @@ function QueueCard({ e, onView, onOpenDevelop }: { e: QueueEntry; onView: () => 
             <span className={`h-1.5 w-1.5 rounded-full ${qm.dot}`} />
             {qm.label}
           </span>
+          <span
+            className="flex items-center gap-1 rounded-full bg-white/10 px-2 py-1 font-mono text-[9px] font-bold uppercase tracking-widest text-slate-300"
+            title="Pipeline của submission"
+          >
+            {isMusicEntry(e) ? <Music4 size={10} className="text-amber-300" /> : <Film size={10} className="text-indigo-300" />}
+            {isMusicEntry(e) ? 'music' : 'video'}
+          </span>
         </div>
 
         {/* snapshot summary */}
@@ -388,13 +414,29 @@ function QueueCard({ e, onView, onOpenDevelop }: { e: QueueEntry; onView: () => 
 }
 
 /* ================= HUB ================= */
-export default function ProductionHub({ goDevelop }: { goDevelop: () => void }) {
+export default function ProductionHub({
+  domain,
+  goDevelop,
+  goBlueprint,
+}: {
+  domain: Domain;
+  goDevelop: () => void;
+  goBlueprint: () => void;
+}) {
   const store = useStore();
   const queue = useQueue();
   const { user, perms } = useAuth();
   const [viewEntry, setViewEntry] = useState<QueueEntry | null>(null);
+  const music = domain === 'music';
 
-  const sorted = store.projects.slice().sort((a, b) => b.updatedAt - a.updatedAt);
+  const sorted = store.projects
+    .filter((p) => (p.domain ?? 'video') === domain)
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+
+  const createNew = () => {
+    const pid = store.createProject(music ? `MV Project ${String(sorted.length + 1).padStart(2, '0')}` : undefined, domain);
+    if (music) store.setAudience(pid, 'kids-0-6'); // trẻ em là mặc định ưu tiên
+  };
 
   // Admin/L3 thấy TOÀN BỘ queue kể từ trạng thái review; L2 chỉ thấy submission của mình
   const visibleEntries = useMemo(() => {
@@ -419,7 +461,9 @@ export default function ProductionHub({ goDevelop }: { goDevelop: () => void }) 
         {/* header */}
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <span className="font-mono text-[10px] font-bold uppercase tracking-[0.26em] text-emerald-600">Bước 3 · Production hub</span>
+            <span className="font-mono text-[10px] font-bold uppercase tracking-[0.26em] text-emerald-600">
+              Bước 3 · Production hub · {music ? 'AI MUSIC VIDEO' : 'AI VIDEO'}
+            </span>
             <h2 className="mt-1.5 font-display text-3xl font-extrabold tracking-tight text-slate-900">
               Projects <span className="text-slate-300">· hybrid review queue</span>
             </h2>
@@ -446,7 +490,15 @@ export default function ProductionHub({ goDevelop }: { goDevelop: () => void }) 
               Back to Develop
             </button>
             <button
-              onClick={() => store.createProject()}
+              onClick={goBlueprint}
+              title={music ? 'Về Bước 1 · chọn đối tượng & xem lối đi' : 'Về Bước 1 · Phân tích hệ thống'}
+              className="flex h-9 items-center gap-1.5 rounded-full border border-slate-300 bg-white px-4 text-[12px] font-bold text-slate-600 shadow-sm transition-all hover:-translate-y-0.5 hover:border-amber-400 hover:text-amber-600"
+            >
+              <Music4 size={14} />
+              Bước 1 · {music ? 'Đối tượng & lối đi' : 'Phân tích'}
+            </button>
+            <button
+              onClick={createNew}
               disabled={!perms.manageProjects}
               title={perms.manageProjects ? 'Tạo project mới' : 'Cần L2 trở lên'}
               className="sheen relative flex h-9 items-center gap-1.5 overflow-hidden rounded-full bg-gradient-to-r from-emerald-500 to-teal-600 px-4 text-[12px] font-bold text-white shadow-lg shadow-emerald-500/25 transition-all enabled:hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-40"

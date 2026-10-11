@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { pipeline as built, type Category, type PipelineStep, type SuggestionItem } from './data/pipeline';
+import { musicPipeline } from './data/musicPipeline';
 
 /* ================================================================
  * STORE v3 — PROJECT MANAGEMENT
@@ -23,6 +24,7 @@ export interface Line {
   refs: Record<string, string[]>;
 }
 export type ProjectStatus = 'draft' | 'review' | 'approved' | 'final';
+export type Domain = 'video' | 'music';
 export interface HistoryEntry {
   at: number;
   action: string;
@@ -31,6 +33,10 @@ export interface Project {
   pid: string;
   /** Project ID hiển thị — DUY NHẤT trên toàn hệ thống (mọi workspace), không đổi, không trùng kể cả khi trùng tên */
   pcode: string;
+  /** pipeline nào: video (mặc định) hay music video */
+  domain: Domain;
+  /** đối tượng khán giả đang chọn (chỉ music) — quyết định "lối đi" & gợi ý */
+  audience?: string;
   name: string;
   status: ProjectStatus;
   createdAt: number;
@@ -55,8 +61,10 @@ interface Ctx {
   activeProject: Project;
   isLocked: boolean; // active project đã finalize → chỉ đọc
   // project ops
-  createProject: (name?: string) => void;
+  createProject: (name?: string, domain?: Domain) => string;
   openProject: (pid: string) => void;
+  /** chọn đối tượng khán giả (music) → kích hoạt "lối đi" & gợi ý */
+  setAudience: (pid: string, audienceId: string) => void;
   renameProject: (pid: string, name: string) => void;
   duplicateProject: (pid: string) => void;
   deleteProject: (pid: string) => void;
@@ -114,18 +122,20 @@ function nextProjectCode(): string {
   return `PRJ-${String(n).padStart(4, '0')}`;
 }
 
-function mkProject(name: string): Project {
+function mkProject(name: string, domain: Domain = 'video'): Project {
   const now = Date.now();
+  const steps = domain === 'music' ? musicPipeline : built;
   return {
     pid: uid(),
     pcode: nextProjectCode(),
+    domain,
     name,
     status: 'draft',
     createdAt: now,
     updatedAt: now,
-    history: [{ at: now, action: `Khởi tạo project “${name}”` }],
-    data: clone(built),
-    lines: Object.fromEntries(built.map((s) => [s.code, []])) as Record<string, Line[]>,
+    history: [{ at: now, action: `Khởi tạo project “${name}” · pipeline ${domain === 'music' ? 'AI MUSIC VIDEO' : 'AI VIDEO'}` }],
+    data: clone(steps),
+    lines: Object.fromEntries(steps.map((s) => [s.code, []])) as Record<string, Line[]>,
   };
 }
 function seed(): Persisted {
@@ -141,9 +151,10 @@ function load(scope: string): Persisted {
     if (raw) {
       const p = JSON.parse(raw) as Persisted;
       if (p?.schema === 3 && p.projects?.length) {
-        // backfill Project ID cho dữ liệu cũ (chưa có pcode)
+        // backfill Project ID + domain cho dữ liệu cũ
         p.projects.forEach((pr) => {
           if (!pr.pcode) pr.pcode = nextProjectCode();
+          if (!pr.domain) pr.domain = 'video';
         });
         return p;
       }
@@ -245,11 +256,25 @@ export function StoreProvider({ scope, children }: { scope: string; children: Re
       isLocked: locked,
 
       /* ---------- project ops ---------- */
-      createProject: (name) =>
-        setState((s) => {
-          const p = mkProject(name ?? `Project ${String(s.projects.length + 1).padStart(2, '0')}`);
-          return { ...s, projects: [...s.projects, p], activePid: p.pid };
-        }),
+      createProject: (name, domain = 'video') => {
+        const p = mkProject(name ?? `Project ${Date.now() % 1000}`, domain);
+        setState((s) => ({ ...s, projects: [...s.projects, p], activePid: p.pid }));
+        return p.pid;
+      },
+      setAudience: (pid, audienceId) =>
+        setState((s) => ({
+          ...s,
+          projects: s.projects.map((p) =>
+            p.pid === pid
+              ? {
+                  ...p,
+                  audience: audienceId,
+                  updatedAt: Date.now(),
+                  history: [...p.history, { at: Date.now(), action: `Chọn đối tượng khán giả: ${audienceId}` }],
+                }
+              : p,
+          ),
+        })),
       openProject: (pid) => setState((s) => (s.projects.some((p) => p.pid === pid) ? { ...s, activePid: pid } : s)),
       renameProject: (pid, name) =>
         setState((s) => ({
@@ -269,6 +294,7 @@ export function StoreProvider({ scope, children }: { scope: string; children: Re
             ...clone(src),
             pid: uid(),
             pcode: nextProjectCode(), // bản sao nhận Project ID mới — bản gốc giữ ID cũ
+            domain: src.domain ?? 'video',
             name: `${src.name} (copy)`,
             status: 'draft',
             createdAt: now,
@@ -466,6 +492,20 @@ export const stepRefDefs: Record<string, RefDef[] | undefined> = {
     { key: 'transcript', label: 'Transcript', from: 'TR' },
     { key: 'voice', label: 'Voice', from: 'VO' },
     { key: 'loc', label: 'Location', from: 'LC' },
+  ],
+  /* ---- AI MUSIC VIDEO PIPELINE ---- */
+  SQ: [
+    { key: 'venue', label: 'Venue / Stage', from: 'VN' },
+    { key: 'artists', label: 'Artists', from: 'AR', multi: true, max: 4 },
+    { key: 'lyric', label: 'Lyric block', from: 'LY' },
+    { key: 'vocal', label: 'Vocal', from: 'VC' },
+  ],
+  MS: [
+    { key: 'sequence', label: 'Sequence', from: 'SQ' },
+    { key: 'artists', label: 'Artist', from: 'AR', multi: true, max: 3 },
+    { key: 'lyric', label: 'Lyric', from: 'LY' },
+    { key: 'vocal', label: 'Vocal', from: 'VC' },
+    { key: 'venue', label: 'Venue', from: 'VN' },
   ],
 };
 
